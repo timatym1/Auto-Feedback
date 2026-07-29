@@ -1,10 +1,37 @@
-# filepath: .gitignore
+# Python & Byte-code
 __pycache__/
 *.py[cod]
 *$py.class
-.env
-.venv/
+*.so
+.Python
+env/
 venv/
-logs/*.log
-.idea/
+ENV/
+.venv
+
+# Environment & Credentials
+.env
+.env.local
+*.pem
+*.key
+
+# Database & Storage
+*.sqlite3
+*.db
+pgdata/
+redisdata/
+
+# Logs
+logs/
+*.log
+
+# IDEs & Editors
 .vscode/
+.idea/
+*.swp
+*.swo
+
+# Testing & Coverage
+.coverage
+htmlcov/
+.pytest_cache/

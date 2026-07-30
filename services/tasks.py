@@ -2,7 +2,9 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from aiogram import Bot
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.utils.markdown import escape_md
 from loguru import logger
 
 from config.settings import settings
@@ -69,9 +71,10 @@ async def send_nps_survey_task(report_id_str: str) -> None:
             client = report.client
             keyboard = get_nps_keyboard(report.id)
 
+            safe_company_name = escape_md(tenant.company_name)  # FIX: escape для Markdown parse_mode
             message_text = (
                 f"Здравствуйте! 👋\n\n"
-                f"Благодарим вас за посещение **{tenant.company_name}**!\n"
+                f"Благодарим вас за посещение **{safe_company_name}**!\n"
                 f"Пожалуйста, оцените качество нашего обслуживания от 1 до 5 stars:"
             )
 
@@ -86,11 +89,23 @@ async def send_nps_survey_task(report_id_str: str) -> None:
                 await uow.commit()
                 logger.info(f"NPS опрос успешно отправлен клиенту {client.tg_user_id}")
 
-            except Exception as tg_err:
-                # Обработка Edge Case: Клиент заблокировал бота
+            except TelegramRetryAfter as flood_err:
+                # FIX: rate-limit — это retryable, не считаем провалом отправки
                 logger.warning(
-                    f"Не удалось отправить сообщение пользователю {client.tg_user_id}. Ошибка: {tg_err} [Reason: BOT_BLOCKED_BY_USER]"
+                    f"Flood control при отправке {client.tg_user_id}: retry_after={flood_err.retry_after}s"
                 )
+                await uow.rollback()
+                raise  # пусть TaskIQ ретраит задачу согласно своей retry-политике
+
+            except TelegramForbiddenError:
+                # FIX: клиент реально заблокировал бота — единственный настоящий BOT_BLOCKED_BY_USER
+                logger.warning(f"Клиент {client.tg_user_id} заблокировал бота [BOT_BLOCKED_BY_USER]")
+                await feedback_service.mark_as_failed(report_id)
+                await uow.commit()
+
+            except TelegramBadRequest as bad_req:
+                # FIX: например, невалидная разметка/chat_id — не ретраим бесконечно
+                logger.error(f"Bad request при отправке {client.tg_user_id}: {bad_req}")
                 await feedback_service.mark_as_failed(report_id)
                 await uow.commit()
 

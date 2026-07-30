@@ -62,5 +62,16 @@ class Settings(BaseSettings):
             return f"redis://:{self.REDIS_PASSWORD}@{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
         return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
 
+    @field_validator("JWT_SECRET", "WEBHOOK_SECRET")
+    @classmethod
+    def forbid_default_secrets_in_prod(cls, v: SecretStr, info) -> SecretStr:
+        # FIX: запрет дефолтных секретов-заглушек в production
+        weak_defaults = {"super-secret-jwt-key", "secret-webhook-key"}
+        if v.get_secret_value() in weak_defaults:
+            import os
+            if os.getenv("ENV") == "production":
+                raise ValueError(f"{info.field_name}: hardcoded default secret is forbidden in production")
+        return v
+
 
 settings = Settings()
